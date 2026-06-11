@@ -1,7 +1,32 @@
 import mongoose from "mongoose";
 
+// Helper to sanitize MONGODB_URI when it is misconfigured
+export function sanitizeMongoUri(uri: string | undefined): string {
+  if (!uri) return "";
+  
+  const trimmed = uri.trim();
+  if (trimmed.startsWith("mongodb+srv://")) {
+    let hostPortion = trimmed.substring("mongodb+srv://".length);
+    const atIndex = hostPortion.lastIndexOf("@");
+    let credentials = "";
+    if (atIndex !== -1) {
+      credentials = hostPortion.substring(0, atIndex + 1);
+      hostPortion = hostPortion.substring(atIndex + 1);
+    }
+    
+    const slashIndex = hostPortion.indexOf("/");
+    let hostAndPort = slashIndex !== -1 ? hostPortion.substring(0, slashIndex) : hostPortion;
+    
+    if (hostAndPort.includes(":")) {
+      console.warn(`⚠️ Warning: MONGODB_URI uses 'mongodb+srv://' but includes a port inside '${hostAndPort}'. Converting to direct 'mongodb://' schema.`);
+      return "mongodb://" + credentials + hostPortion;
+    }
+  }
+  return trimmed;
+}
+
 // Setup mongoose schemas and connection
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI = sanitizeMongoUri(process.env.MONGODB_URI);
 
 // Connection retry configuration
 const MAX_RETRIES = 5;
@@ -52,11 +77,46 @@ const CropPriceSchema = new mongoose.Schema({
 
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true }, // PBKDF2 secure hash
-  role: { type: String, required: true, default: "farmer" }, // "admin" or "farmer"
+  password: { type: String, required: true }, // secure hash
+  role: { type: String, required: true, default: "farmer" }, // "admin", "protinidhi", "farmer"
   name: { type: String },
   phone: { type: String },
   walletBalance: { type: Number, default: 14250 }
+});
+
+const RepresentativeProfileSchema = new mongoose.Schema({
+  fullName: { type: String, required: true },
+  phone: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true }, // Bcrypt hash
+  division: { type: String, required: true },
+  district: { type: String, required: true },
+  upazila: { type: String, required: true },
+  unionOrVillage: { type: String, required: true },
+  status: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
+  createdAt: { type: String, required: true }
+});
+
+const ProductPriceSchema = new mongoose.Schema({
+  productName: { type: String, required: true },
+  price: { type: Number, required: true },
+  unit: { type: String, required: true },
+  division: { type: String, required: true },
+  district: { type: String, required: true },
+  upazila: { type: String, required: true },
+  representativeId: { type: String, required: true }, // email of representative
+  representativeName: { type: String, required: true },
+  submissionDate: { type: String, required: true },
+  status: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" }
+});
+
+const ApprovalLogSchema = new mongoose.Schema({
+  actionType: { type: String, required: true }, // "APPROVE_REPRESENTATIVE", "REJECT_REPRESENTATIVE", "APPROVE_PRICE", "REJECT_PRICE", "EDIT_PRICE"
+  targetId: { type: String, required: true }, // email/id
+  targetName: { type: String, required: true }, // name of crop or person
+  performedBy: { type: String, required: true }, // admin email
+  details: { type: String, required: true },
+  timestamp: { type: String, required: true }
 });
 
 const WeatherSchema = new mongoose.Schema({
@@ -97,12 +157,25 @@ export const UserModel = (mongoose.models.User || mongoose.model("User", UserSch
 export const WeatherModel = (mongoose.models.Weather || mongoose.model("Weather", WeatherSchema)) as any;
 export const AdvisoryChatModel = (mongoose.models.AdvisoryChat || mongoose.model("AdvisoryChat", AdvisoryChatSchema)) as any;
 export const DiseaseDiagnoseModel = (mongoose.models.DiseaseDiagnose || mongoose.model("DiseaseDiagnose", DiseaseDiagnoseSchema)) as any;
+export const RepresentativeProfileModel = (mongoose.models.RepresentativeProfile || mongoose.model("RepresentativeProfile", RepresentativeProfileSchema)) as any;
+export const ProductPriceModel = (mongoose.models.ProductPrice || mongoose.model("ProductPrice", ProductPriceSchema)) as any;
+export const ApprovalLogModel = (mongoose.models.ApprovalLog || mongoose.model("ApprovalLog", ApprovalLogSchema)) as any;
 
 // Helper: Secure Password Hashing
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
+
 export function hashPassword(password: string): string {
   const salt = "agro_salt_2026_seeding";
   return crypto.pbkdf2Sync(password, salt, 1000, 64, "sha512").toString("hex");
+}
+
+export function hashBcrypt(password: string): string {
+  return bcrypt.hashSync(password, 10);
+}
+
+export function compareBcrypt(password: string, hash: string): boolean {
+  return bcrypt.compareSync(password, hash);
 }
 
 // 2. CONNECTION FUNCTION WITH RETRIES

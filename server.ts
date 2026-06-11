@@ -14,7 +14,12 @@ import {
   WeatherModel,
   AdvisoryChatModel,
   DiseaseDiagnoseModel,
-  hashPassword
+  RepresentativeProfileModel,
+  ProductPriceModel,
+  ApprovalLogModel,
+  hashPassword,
+  hashBcrypt,
+  compareBcrypt
 } from "./src/db/connection";
 
 // Load environment variables
@@ -717,7 +722,67 @@ app.post("/api/marketplace/:id/delete", async (req, res, next) => {
 // 3.5. AUTHENTICATION SERVICES & RECORD ARCHIVES (CRUD)
 // ==========================================================
 
-// Register User Account
+// Register Protinidhi (Representative) Account
+app.post("/api/auth/representative/register", async (req, res, next) => {
+  try {
+    const { fullName, phone, email, password, division, district, upazila, unionOrVillage } = req.body;
+    
+    if (!fullName || !phone || !email || !password || !division || !district || !upazila || !unionOrVillage) {
+      return res.status(400).json({ status: "error", message: "প্রতিনিধি রেজিস্ট্রেশনের সকল তথ্য পূরণ করা আবশ্যক।" });
+    }
+
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন রয়েছে। অনুগ্রহ করে পরে চেষ্টা করুন।" });
+    }
+
+    const existingUser = await UserModel.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({ status: "error", message: "এই ইমেইল দিয়ে ইতিমধ্যে অ্যাকাউন্ট তৈরি করা হয়েছে।" });
+    }
+
+    const bcryptPassword = hashBcrypt(password);
+
+    // Save User record
+    const newUser = new UserModel({
+      name: fullName,
+      email: email.toLowerCase(),
+      password: bcryptPassword,
+      phone: phone,
+      role: "protinidhi",
+      walletBalance: 14250
+    });
+    await newUser.save();
+
+    // Save Representative profile
+    const newProfile = new RepresentativeProfileModel({
+      fullName,
+      phone,
+      email: email.toLowerCase(),
+      password: bcryptPassword,
+      division,
+      district,
+      upazila,
+      unionOrVillage,
+      status: "Pending",
+      createdAt: new Date().toISOString()
+    });
+    await newProfile.save();
+
+    return res.json({
+      status: "success",
+      message: "প্রতিনিধি অ্যাকাউন্টটি রেজিস্ট্রেশন সম্পন্ন হয়েছে এবং অনুমোদনের অপেক্ষায় আছে!",
+      data: {
+        fullName,
+        email: email.toLowerCase(),
+        status: "Pending"
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Register Standard User/Farmer Account
 app.post("/api/auth/register", async (req, res, next) => {
   try {
     const { name, email, password, phone, role } = req.body;
@@ -726,7 +791,7 @@ app.post("/api/auth/register", async (req, res, next) => {
     }
 
     if (!isDbConnected()) {
-      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ সংযোগ বিচ্ছিন্ন রয়েছে। অনুগ্রহ করে পরে চেষ্টা করুন।" });
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন রয়েছে। অনুগ্রহ করে পরে চেষ্টা করুন।" });
     }
 
     const existingUser = await UserModel.findOne({ email: email.toLowerCase() });
@@ -734,11 +799,11 @@ app.post("/api/auth/register", async (req, res, next) => {
       return res.status(400).json({ status: "error", message: "এই ইমেইল দিয়ে ইতিমধ্যে অ্যাকাউন্ট তৈরি করা হয়েছে।" });
     }
 
-    const hashedPassword = hashPassword(password);
+    const bcryptPassword = hashBcrypt(password);
     const newUser = new UserModel({
       name: name || "Default User",
       email: email.toLowerCase(),
-      password: hashedPassword,
+      password: bcryptPassword,
       phone: phone || "",
       role: role || "farmer",
       walletBalance: 14250
@@ -761,7 +826,7 @@ app.post("/api/auth/register", async (req, res, next) => {
   }
 });
 
-// Login User Account
+// Login User Account (Supports pbkdf2 and bcrypt, restricts unapproved Protinidhis)
 app.post("/api/auth/login", async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -769,20 +834,36 @@ app.post("/api/auth/login", async (req, res, next) => {
       return res.status(400).json({ status: "error", message: "ইমেইল এবং পাসওয়ার্ড প্রদান করা আবশ্যক।" });
     }
 
-    if (!isDbConnected()) {
-      // Offline mock authentication fallback for resilience
-      if (email === "sabjadulislamsun15@gmail.com" && password === "sanjadul123456") {
-        return res.json({
-          status: "success",
-          user: {
+    // Hardcoded Super Admin details from instruction (sabjadulislamsun15@gmail.com / sanjadul123456)
+    if (email === "sabjadulislamsun15@gmail.com" && password === "sanjadul123456") {
+      // Auto-create/upsert the Super Admin in DB for safety
+      if (isDbConnected()) {
+        const adminExists = await UserModel.findOne({ email: "sabjadulislamsun15@gmail.com" });
+        if (!adminExists) {
+          const adminUser = new UserModel({
+            name: "সঞ্জাদুল ইসলাম (সুপার অ্যাডমিন)",
             email: "sabjadulislamsun15@gmail.com",
-            name: "সঞ্জাদুল ইসলাম",
+            password: hashBcrypt("sanjadul123456"),
             phone: "+৮৮০১৭১২৩৪৫৬৭৮",
             role: "admin",
-            walletBalance: 14250
-          }
-        });
+            walletBalance: 999999
+          });
+          await adminUser.save();
+        }
       }
+      return res.json({
+        status: "success",
+        user: {
+          email: "sabjadulislamsun15@gmail.com",
+          name: "সঞ্জাদুল ইসলাম",
+          phone: "+৮৮০১৭১২৩৪৫৬৭৮",
+          role: "admin",
+          walletBalance: 999999
+        }
+      });
+    }
+
+    if (!isDbConnected()) {
       return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ সাময়িকভাবে উপলব্ধ নেই এবং ক্রেডেনশিয়াল মেলেনি।" });
     }
 
@@ -791,9 +872,32 @@ app.post("/api/auth/login", async (req, res, next) => {
       return res.status(401).json({ status: "error", message: "ভুল ইমেল বা পাসওয়ার্ড! অনুগ্রহ করে আবার চেষ্টা করুন।" });
     }
 
-    const hashedInput = hashPassword(password);
-    if (user.password !== hashedInput) {
+    // Check credentials supporting both old pbkdf2 and new bcrypt
+    let passwordMatch = false;
+    if (user.password.startsWith("$2a$") || user.password.startsWith("$2b$")) {
+      passwordMatch = compareBcrypt(password, user.password);
+    } else {
+      passwordMatch = (user.password === hashPassword(password));
+    }
+
+    if (!passwordMatch) {
       return res.status(401).json({ status: "error", message: "ভুল ইমেল বা পাসওয়ার্ড! অনুগ্রহ করে আবার চেষ্টা করুন।" });
+    }
+
+    // RBAC: Check block status of representative accounts
+    if (user.role === "protinidhi") {
+      const repProfile = await RepresentativeProfileModel.findOne({ email: email.toLowerCase() });
+      if (!repProfile) {
+        return res.status(401).json({ status: "error", message: "প্রতিনিধি প্রোফাইল খুঁজে পাওয়া যায়নি।" });
+      }
+
+      if (repProfile.status === "Pending") {
+        return res.status(401).json({ status: "error", message: "আপনার প্রতিনিধি অ্যাকাউন্টটি এখনও সুপার অ্যাডমিন কর্তৃক অনুমোদিত হয়নি। অনুগ্রহ করে অপেক্ষা করুন।" });
+      }
+
+      if (repProfile.status === "Rejected") {
+        return res.status(401).json({ status: "error", message: "আপনার প্রতিনিধি অ্যাকাউন্টের আবেদন বাতিল করা হয়েছে।" });
+      }
     }
 
     return res.json({
@@ -807,6 +911,304 @@ app.post("/api/auth/login", async (req, res, next) => {
         walletBalance: user.walletBalance
       }
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ==========================================================
+// 3.6. REPRESENTATIVE (PROTINIDHI) PANEL APIs
+// ==========================================================
+
+// Submit a new area crop price
+app.post("/api/representative/prices", async (req, res, next) => {
+  try {
+    const { productName, price, unit, division, district, upazila, representativeId, representativeName } = req.body;
+    
+    if (!productName || !price || !unit || !division || !district || !upazila || !representativeId || !representativeName) {
+      return res.status(400).json({ status: "error", message: "বাজার দরের সকল ফিল্ড পূরণ করা আবশ্যক।" });
+    }
+
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ সংযোগ বিচ্ছিন্ন রয়েছে।" });
+    }
+
+    const newPriceRecord = new ProductPriceModel({
+      productName,
+      price: Number(price),
+      unit,
+      division,
+      district,
+      upazila,
+      representativeId: representativeId.toLowerCase(),
+      representativeName,
+      submissionDate: new Date().toLocaleDateString("bn-BD"),
+      status: "Pending" // Starts in pending status
+    });
+
+    await newPriceRecord.save();
+    return res.json({
+      status: "success",
+      message: "প্রতিনিধি বাজার দরটি সফলভাবে আপলোড করেছেন এবং অনুমোদনের অপেক্ষায় আছে!",
+      data: newPriceRecord
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get prices submitted by a specific representative
+app.get("/api/representative/prices/:email", async (req, res, next) => {
+  try {
+    const { email } = req.params;
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন।" });
+    }
+    const prices = await ProductPriceModel.find({ representativeId: email.toLowerCase() }).sort({ _id: -1 });
+    return res.json({ status: "success", data: prices });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update draft price record before Super Admin approves or rejects
+app.put("/api/representative/prices/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { productName, price, unit, division, district, upazila } = req.body;
+
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন।" });
+    }
+
+    const priceRecord = await ProductPriceModel.findById(id);
+    if (!priceRecord) {
+      return res.status(440).json({ status: "error", message: "বাজার দরের রেকর্ডটি খুঁজে পাওয়া যায়নি।" });
+    }
+
+    if (priceRecord.status !== "Pending") {
+      return res.status(400).json({ status: "error", message: "অনুমোদিত বা বাতিলকৃত দর রেকর্ড পরিবর্তন করা সম্ভব নয়।" });
+    }
+
+    if (productName) priceRecord.productName = productName;
+    if (price) priceRecord.price = Number(price);
+    if (unit) priceRecord.unit = unit;
+    if (division) priceRecord.division = division;
+    if (district) priceRecord.district = district;
+    if (upazila) priceRecord.upazila = upazila;
+
+    await priceRecord.save();
+    return res.json({
+      status: "success",
+      message: "আপনার বাজার দর সফলভাবে আপডেট করা হয়েছে!",
+      data: priceRecord
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ==========================================================
+// 3.7. SUPER ADMIN ADMIN DASHBOARD APIs
+// ==========================================================
+
+// View all Protinidhi (Representative) registration requests & users
+app.get("/api/admin/representatives", async (req, res, next) => {
+  try {
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন।" });
+    }
+    const reps = await RepresentativeProfileModel.find({}).sort({ createdAt: -1 });
+    return res.json({ status: "success", data: reps });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Approve or Reject Representative application
+app.post("/api/admin/representatives/:id/status", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, adminEmail } = req.body; // status is "Approved" or "Rejected"
+
+    if (!status || !["Approved", "Rejected"].includes(status)) {
+      return res.status(400).json({ status: "error", message: "অনুমোদনের সঠিক স্ট্যাটাস প্রদান করুন।" });
+    }
+
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন।" });
+    }
+
+    const profile = await RepresentativeProfileModel.findById(id);
+    if (!profile) {
+      return res.status(404).json({ status: "error", message: "প্রতিনিধি প্রোফাইল পাওয়া যায়নি।" });
+    }
+
+    const previousStatus = profile.status;
+    profile.status = status;
+    await profile.save();
+
+    // Create Audit Log
+    const auditLog = new ApprovalLogModel({
+      actionType: status === "Approved" ? "APPROVE_REPRESENTATIVE" : "REJECT_REPRESENTATIVE",
+      targetId: profile.email,
+      targetName: profile.fullName,
+      performedBy: adminEmail || "sabjadulislamsun15@gmail.com",
+      details: `প্রতিনিধি ${profile.fullName} (${profile.email})-এর আবেদন ${status === "Approved" ? "অনুমোদন" : "বাতিল"} করা হয়েছে। পূর্ববর্তী অবস্থা: ${previousStatus}`,
+      timestamp: new Date().toISOString()
+    });
+    await auditLog.save();
+
+    return res.json({
+      status: "success",
+      message: `প্রতিনিধির আবেদন সফলভাবে ${status === "Approved" ? "অনুমোদন" : "বাতিল"} করা হয়েছে!`,
+      data: profile
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// View all area submitted crop prices
+app.get("/api/admin/prices", async (req, res, next) => {
+  try {
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন।" });
+    }
+    const prices = await ProductPriceModel.find({}).sort({ _id: -1 });
+    return res.json({ status: "success", data: prices });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Approve or Reject submitted crop prices
+app.post("/api/admin/prices/:id/status", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, adminEmail } = req.body; // status is "Approved" or "Rejected"
+
+    if (!status || !["Approved", "Rejected"].includes(status)) {
+      return res.status(400).json({ status: "error", message: "সঠিক স্ট্যাটাস প্রদান করুন।" });
+    }
+
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন।" });
+    }
+
+    const priceRecord = await ProductPriceModel.findById(id);
+    if (!priceRecord) {
+      return res.status(404).json({ status: "error", message: "বাজার দর রেকর্ডটি পাওয়া যায়নি।" });
+    }
+
+    const previousStatus = priceRecord.status;
+    priceRecord.status = status;
+    await priceRecord.save();
+
+    // Create Audit Log
+    const auditLog = new ApprovalLogModel({
+      actionType: status === "Approved" ? "APPROVE_PRICE" : "REJECT_PRICE",
+      targetId: priceRecord._id.toString(),
+      targetName: `${priceRecord.productName} (${priceRecord.upazila})`,
+      performedBy: adminEmail || "sabjadulislamsun15@gmail.com",
+      details: `${priceRecord.productName} (${priceRecord.upazila})-এর মূল্য ${status === "Approved" ? "অনুমোদন" : "বাতিল"} করা হয়েছে। পূর্ববর্তী অবস্থা: ${previousStatus}`,
+      timestamp: new Date().toISOString()
+    });
+    await auditLog.save();
+
+    return res.json({
+      status: "success",
+      message: `বাজার দর সফলভাবে ${status === "Approved" ? "অনুমোদন" : "বাতিল"} করা হয়েছে!`,
+      data: priceRecord
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Super Admin edits incorrect price data if necessary
+app.put("/api/admin/prices/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { productName, price, unit, division, district, upazila, adminEmail } = req.body;
+
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন।" });
+    }
+
+    const priceRecord = await ProductPriceModel.findById(id);
+    if (!priceRecord) {
+      return res.status(404).json({ status: "error", message: "বাজার দর রেকর্ড পাওয়া যায়নি।" });
+    }
+
+    const oldPrice = priceRecord.price;
+    const oldProduct = priceRecord.productName;
+
+    if (productName) priceRecord.productName = productName;
+    if (price !== undefined) priceRecord.price = Number(price);
+    if (unit) priceRecord.unit = unit;
+    if (division) priceRecord.division = division;
+    if (district) priceRecord.district = district;
+    if (upazila) priceRecord.upazila = upazila;
+
+    await priceRecord.save();
+
+    // Create Audit Log
+    const auditLog = new ApprovalLogModel({
+      actionType: "EDIT_PRICE",
+      targetId: priceRecord._id.toString(),
+      targetName: `${priceRecord.productName} (${priceRecord.upazila})`,
+      performedBy: adminEmail || "sabjadulislamsun15@gmail.com",
+      details: `সুপার অ্যাডমিন দর রেকর্ড সংশোধন করেছেন। পূর্ববর্তী নাম: "${oldProduct}" দর: ${oldPrice} টাকা। পরিবর্তিত নাম: "${priceRecord.productName}" দর: ${priceRecord.price} টাকা।`,
+      timestamp: new Date().toISOString()
+    });
+    await auditLog.save();
+
+    return res.json({
+      status: "success",
+      message: "সুপার অ্যাডমিন সফলভাবে তথ্য সংশোধন করেছেন এবং সংশ্লিষ্ট পরিবর্তন সংরক্ষণ করা হয়েছে!",
+      data: priceRecord
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// View all Approval Logs (Audit Trails)
+app.get("/api/admin/audit-logs", async (req, res, next) => {
+  try {
+    if (!isDbConnected()) {
+      return res.status(503).json({ status: "error", message: "ডাটাবেস সংযোগ বিচ্ছিন্ন।" });
+    }
+    const logs = await ApprovalLogModel.find({}).sort({ timestamp: -1 });
+    return res.json({ status: "success", data: logs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ==========================================================
+// 3.8. PUBLIC DATA & AREA PRICE QUERIES
+// ==========================================================
+
+// Get only Approved Prices for the general public (Supports filters by Division, District, Upazila, and Product)
+app.get("/api/public/prices", async (req, res, next) => {
+  try {
+    if (!isDbConnected()) {
+      // Return empty array gracefully if DB not connected
+      return res.json({ status: "success", data: [] });
+    }
+
+    const { division, district, upazila, product } = req.query;
+    const query: any = { status: "Approved" };
+
+    if (division) query.division = division;
+    if (district) query.district = district;
+    if (upazila) query.upazila = upazila;
+    if (product) query.productName = { $regex: product, $options: "i" };
+
+    const approvedPrices = await ProductPriceModel.find(query).sort({ _id: -1 });
+    return res.json({ status: "success", data: approvedPrices });
   } catch (err) {
     next(err);
   }
@@ -1507,15 +1909,22 @@ async function verifyGeminiConnectionOnStartup() {
 }
 
 async function startServer() {
-  // Connect to MongoDB Atlas
-  console.log("🔌 Initializing connection sequences...");
-  const dbResult = await connectToDatabase();
-  if (dbResult) {
-    await seedDatabaseIfEmpty();
-  }
+  // Connect to MongoDB Atlas in the background to avoid blocking the server startup
+  console.log("🔌 Initializing background connection sequences...");
+  connectToDatabase()
+    .then(async (dbResult) => {
+      if (dbResult) {
+        await seedDatabaseIfEmpty();
+      }
+    })
+    .catch((err) => {
+      console.error("❌ Background database connection/seeding failed:", err);
+    });
 
-  // Validate Gemini API Key on startup
-  await verifyGeminiConnectionOnStartup();
+  // Validate Gemini API Key on startup in the background
+  verifyGeminiConnectionOnStartup().catch((err) => {
+    console.error("❌ Background Gemini validation failed:", err);
+  });
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

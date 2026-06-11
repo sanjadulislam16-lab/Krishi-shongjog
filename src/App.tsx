@@ -189,12 +189,236 @@ export default function App() {
   const [newNewsDateEn, setNewNewsDateEn] = useState<string>("Today");
   const [newsSubmitLoading, setNewsSubmitLoading] = useState<boolean>(false);
 
-  // Load Marketplace Products & Prices
+  // --- New RBAC / Protinidhi Dashboard States ---
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  
+  // Registration and Authentication inputs
+  const [isRegisteringRep, setIsRegisteringRep] = useState<boolean>(false);
+  const [repRegForm, setRepRegForm] = useState({
+    fullName: "",
+    phone: "",
+    email: "",
+    password: "",
+    division: "ঢাকা",
+    district: "ঢাকা",
+    upazila: "",
+    unionOrVillage: ""
+  });
+  const [authError, setAuthError] = useState<string>("");
+  const [authSuccess, setAuthSuccess] = useState<string>("");
+  const [loginEmail, setLoginEmail] = useState<string>("");
+  const [loginPassword, setLoginPassword] = useState<string>("");
+
+  // Representative Price Submission States
+  const [repNewPriceForm, setRepNewPriceForm] = useState({
+    productName: "বোরো ধান",
+    price: "",
+    unit: "মন",
+    division: "ঢাকা",
+    district: "ঢাকা",
+    upazila: "",
+  });
+  const [repPrices, setRepPrices] = useState<any[]>([]); // current rep's submitted prices
+  const [repSuccessMsg, setRepSuccessMsg] = useState<string>("");
+  const [repErrorMsg, setRepErrorMsg] = useState<string>("");
+
+  // Editing direct price row (Used by both representative & admin)
+  const [editingPriceObj, setEditingPriceObj] = useState<any>(null);
+  const [editPriceForm, setEditPriceForm] = useState({
+    productName: "",
+    price: "",
+    unit: "মন",
+    division: "ঢাকা",
+    district: "ঢাকা",
+    upazila: "",
+  });
+
+  // Super Admin view databases
+  const [adminReps, setAdminReps] = useState<any[]>([]);
+  const [adminPriceSubmissions, setAdminPriceSubmissions] = useState<any[]>([]);
+  const [adminAuditLogs, setAdminAuditLogs] = useState<any[]>([]);
+  const [adminSelectedTab, setAdminSelectedTab] = useState<"reps" | "prices" | "logs">("reps");
+
+  // Public approved prices
+  const [publicApprovedPrices, setPublicApprovedPrices] = useState<any[]>([]);
+  const [priceViewTab, setPriceViewTab] = useState<"wholesale" | "representative">("wholesale");
+
+  // Public price filter inputs
+  const [pubFilterDiv, setPubFilterDiv] = useState<string>("all");
+  const [pubFilterDist, setPubFilterDist] = useState<string>("all");
+  const [pubFilterUpazila, setPubFilterUpazila] = useState<string>("");
+  const [pubFilterProduct, setPubFilterProduct] = useState<string>("");
+
+  const loadPublicApprovedPrices = () => {
+    let url = "/api/public/prices?";
+    if (pubFilterDiv !== "all") url += `division=${encodeURIComponent(pubFilterDiv)}&`;
+    if (pubFilterDist !== "all") url += `district=${encodeURIComponent(pubFilterDist)}&`;
+    if (pubFilterUpazila) url += `upazila=${encodeURIComponent(pubFilterUpazila)}&`;
+    if (pubFilterProduct) url += `product=${encodeURIComponent(pubFilterProduct)}&`;
+
+    fetch(url)
+      .then(res => res.json())
+      .then(res => {
+        if (res.status === "success") {
+          setPublicApprovedPrices(res.data);
+        }
+      })
+      .catch(err => console.error("Error loading public approved prices:", err));
+  };
+
+  const loadAdminData = () => {
+    fetch("/api/admin/representatives")
+      .then(res => res.json())
+      .then(res => { if (res.status === "success") setAdminReps(res.data); })
+      .catch(err => console.error(err));
+
+    fetch("/api/admin/prices")
+      .then(res => res.json())
+      .then(res => { if (res.status === "success") setAdminPriceSubmissions(res.data); })
+      .catch(err => console.error(err));
+
+    fetch("/api/admin/audit-logs")
+      .then(res => res.json())
+      .then(res => { if (res.status === "success") setAdminAuditLogs(res.data); })
+      .catch(err => console.error(err));
+  };
+
+  const loadRepData = (email: string) => {
+    fetch(`/api/representative/prices/${encodeURIComponent(email)}`)
+      .then(res => res.json())
+      .then(res => {
+        if (res.status === "success") {
+          setRepPrices(res.data);
+        }
+      })
+      .catch(err => console.error(err));
+  };
+
+  const handleRepPriceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRepSuccessMsg("");
+    setRepErrorMsg("");
+    if (!currentUser) return;
+
+    try {
+      const res = await fetch("/api/representative/prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...repNewPriceForm,
+          representativeId: currentUser.email,
+          representativeName: currentUser.name
+        })
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setRepSuccessMsg(data.message);
+        loadRepData(currentUser.email);
+        setRepNewPriceForm(prev => ({ ...prev, price: "" }));
+      } else {
+        setRepErrorMsg(data.message);
+      }
+    } catch (err) {
+      setRepErrorMsg("তথ্য সংরক্ষণে ত্রুটি দেখা দিয়েছে।");
+    }
+  };
+
+  const handleRepPriceEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPriceObj) return;
+
+    try {
+      const res = await fetch(`/api/representative/prices/${editingPriceObj._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editPriceForm)
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setRepSuccessMsg(data.message);
+        setEditingPriceObj(null);
+        if (currentUser) loadRepData(currentUser.email);
+      } else {
+        setRepErrorMsg(data.message);
+      }
+    } catch (err) {
+      setRepErrorMsg("তথ্য সংশোধনে কোনো ত্রুটি হয়েছে।");
+    }
+  };
+
+  const handleRepApproval = async (id: string, status: "Approved" | "Rejected") => {
+    try {
+      const res = await fetch(`/api/admin/representatives/${id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, adminEmail: currentUser?.email })
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        loadAdminData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handlePriceApproval = async (id: string, status: "Approved" | "Rejected") => {
+    try {
+      const res = await fetch(`/api/admin/prices/${id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, adminEmail: currentUser?.email })
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        loadAdminData();
+        loadPublicApprovedPrices();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAdminPriceEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPriceObj) return;
+
+    try {
+      const res = await fetch(`/api/admin/prices/${editingPriceObj._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...editPriceForm,
+          adminEmail: currentUser?.email
+        })
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setEditingPriceObj(null);
+        loadAdminData();
+        loadPublicApprovedPrices();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setIsAdminLoggedIn(false);
+    setAuthSuccess("");
+    setAuthError("");
+    setLoginEmail("");
+    setLoginPassword("");
+  };
+
+  // Trigger loads on mount & filter switches
   useEffect(() => {
     loadMarketplace();
     loadPrices();
     loadNews();
-  }, []);
+    loadPublicApprovedPrices();
+  }, [pubFilterDiv, pubFilterDist, pubFilterUpazila, pubFilterProduct]);
 
   // Sync admin states when selected crop changes
   useEffect(() => {
@@ -320,17 +544,52 @@ export default function App() {
       .catch(err => console.error("Error loaded market prices:", err));
   };
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminEmail.trim() === "sabjadulislamsun15@gmail.com" && adminPassword === "sanjadul123456") {
-      setIsAdminLoggedIn(true);
-      setAdminError("");
+    setAuthError("");
+    setAuthSuccess("");
+
+    if (isRegisteringRep) {
+      try {
+        const res = await fetch("/api/auth/representative/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(repRegForm)
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+          setAuthSuccess(data.message);
+          setIsRegisteringRep(false);
+        } else {
+          setAuthError(data.message);
+        }
+      } catch (err) {
+        setAuthError("রেজিস্ট্রেশন করতে ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
+      }
     } else {
-      setAdminError(
-        language === "bn"
-          ? "ভুল ইমেল বা পাসওয়ার্ড! অনুগ্রহ করে আবার চেষ্টা করুন।"
-          : "Invalid email or password! Please try again."
-      );
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: loginEmail, password: loginPassword })
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+          setCurrentUser(data.user);
+          setAuthSuccess(data.message);
+          
+          if (data.user.role === "admin") {
+            setIsAdminLoggedIn(true);
+            loadAdminData();
+          } else if (data.user.role === "protinidhi") {
+            loadRepData(data.user.email);
+          }
+        } else {
+          setAuthError(data.message);
+        }
+      } catch (err) {
+        setAuthError("লগইন ব্যর্থ হয়েছে। ক্রেডেনশিয়াল পরীক্ষা করুন।");
+      }
     }
   };
 
@@ -972,127 +1231,261 @@ export default function App() {
           <section className="bg-white border border-emerald-100 rounded-3xl p-6 shadow-xl shadow-emerald-950/2 overflow-hidden relative">
             <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -mr-12 -mt-12"></div>
             
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 relative z-10">
-              <div>
-                <span className="text-[10px] tracking-widest text-emerald-600 uppercase font-bold bg-emerald-50 border border-emerald-100 py-1 px-2.5 rounded-full">{t("বগুড়া, রাজশাহী, কারওয়ান বাজার মনিটরিং", "Bogra, Rajshahi, Karwan Bazar Monitoring")}</span>
-                <h3 className="text-xl font-bold text-slate-800 mt-2">{t("আজকের পাইকারি বাজার মূল্য ও গ্রাফ বিশ্লেষণ", "Today's Wholesale Market Prices & Trend Analysis")}</h3>
-                <p className="text-xs text-slate-500">{t("বিভিন্ন আড়তের ৭ দিনের মূল্য পরিবর্তন ম্যাপ", "7-day historical wholesale price fluctuations")}</p>
-              </div>
-
-              {/* Selector for price market endpoint */}
-              <div className="flex gap-1.5 p-1 bg-slate-100/80 rounded-2xl w-fit">
-                {(["KarwanBazar", "Baneswar", "Mohasthangarh", "Jessore"] as const).map(m => {
-                  const label: Record<string, string> = {
-                    KarwanBazar: t("কারওয়ান বাজার", "Karwan Bazar"),
-                    Baneswar: t("বানেশ্বর হাট", "Baneswar Hat"),
-                    Mohasthangarh: t("মহাস্থানগড়", "Mohasthangarh"),
-                    Jessore: t("যশোর আড়ত", "Jessore Wholesalers")
-                  };
-                  return (
-                    <button
-                      key={m}
-                      onClick={() => setPriceMarketFilter(m)}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
-                        priceMarketFilter === m ? "bg-white text-emerald-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                      }`}
-                    >
-                      {label[m]}
-                    </button>
-                  );
-                })}
-              </div>
+            {/* View Switcher Tabs */}
+            <div className="flex gap-4 mb-4 border-b border-slate-100 pb-3 relative z-10">
+              <button
+                onClick={() => setPriceViewTab("wholesale")}
+                className={`pb-1 px-1 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+                  priceViewTab === "wholesale" 
+                    ? "border-emerald-600 text-emerald-800" 
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                📊 {t("পাইকারি বাজার সূচক", "Wholesale Price Indices")}
+              </button>
+              <button
+                onClick={() => setPriceViewTab("representative")}
+                className={`pb-1 px-1 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+                  priceViewTab === "representative" 
+                    ? "border-emerald-600 text-emerald-800" 
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                📍 {t("প্রতিনিধি স্থানীয় বাজার দর (লাইভ)", "Local Representative Prices (Live)")}
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
-              
-              {/* Daily prices loop list */}
-              <div className="md:col-span-5 space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                {marketPrices.map((item, idx) => {
-                  const prices = item[priceMarketFilter] || [];
-                  const latestPrice = prices[prices.length - 1] || 0;
-                  const prevPrice = prices[prices.length - 2] || 0;
-                  const isUp = latestPrice > prevPrice;
-                  const isSame = latestPrice === prevPrice;
-
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedCropPrice(item)}
-                      className={`w-full flex items-center justify-between p-3 rounded-2xl border text-left transition-all ${
-                        selectedCropPrice?.name === item.name 
-                          ? "bg-emerald-50 border-emerald-200/95 ring-2 ring-emerald-500/20" 
-                          : "bg-white hover:bg-slate-50 border-slate-100"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-sm">
-                          {getCategoryIcon(item.name.includes("ধান") ? "ধান" : item.name.includes("আলু") ? "সবজি" : item.name.includes("পেঁয়াজ") ? "সবজি" : "সবজি")}
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-800">{translateCrop(item.name)}</p>
-                          <p className="text-[10px] text-slate-400">{t("সর্বশেষ আপডেট", "Latest Update")}</p>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <p className="text-xs font-bold text-slate-900">৳{latestPrice}</p>
-                        {isSame ? (
-                          <span className="text-[9px] text-slate-500 font-medium">{t("স্থির", "Stable")}</span>
-                        ) : isUp ? (
-                          <span className="text-[9px] text-green-600 font-bold flex items-center gap-0.5 justify-end">
-                            <TrendingUp className="w-3" /> {t("বৃদ্ধি", "Up")}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] text-red-500 font-bold flex items-center gap-0.5 justify-end">
-                            <TrendingDown className="w-3 px-0.5" /> {t("হ্রাস", "Down")}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Graphical representation (Recharts) */}
-              <div className="md:col-span-7 bg-slate-50 border border-slate-100 p-4 rounded-2xl flex flex-col justify-between">
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <h4 className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                      <TrendingUp className="w-4 h-4 text-emerald-600" /> {translateCrop(selectedCropPrice?.name || "")} - {t("এর মূল্য পরিচিত্র", "Price Trend Chart")}
-                    </h4>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 py-0.5 px-2 rounded-full font-bold">{t("৭ দিনের গড় গ্রাফ", "7-Day Average")}</span>
+            {priceViewTab === "wholesale" ? (
+              <>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 relative z-10">
+                  <div>
+                    <span className="text-[10px] tracking-widest text-emerald-600 uppercase font-bold bg-emerald-50 border border-emerald-100 py-1 px-2.5 rounded-full">{t("বগুড়া, রাজশাহী, কারওয়ান বাজার মনিটরিং", "Bogra, Rajshahi, Karwan Bazar Monitoring")}</span>
+                    <h3 className="text-xl font-bold text-slate-800 mt-2">{t("আজকের পাইকারি বাজার মূল্য ও গ্রাফ বিশ্লেষণ", "Today's Wholesale Market Prices & Trend Analysis")}</h3>
+                    <p className="text-xs text-slate-500">{t("বিভিন্ন আড়তের ৭ দিনের মূল্য পরিবর্তন ম্যাপ", "7-day historical wholesale price fluctuations")}</p>
                   </div>
+
+                  {/* Selector for price market endpoint */}
+                  <div className="flex gap-1.5 p-1 bg-slate-100/80 rounded-2xl w-fit">
+                    {(["KarwanBazar", "Baneswar", "Mohasthangarh", "Jessore"] as const).map(m => {
+                      const label: Record<string, string> = {
+                        KarwanBazar: t("কারওয়ান বাজার", "Karwan Bazar"),
+                        Baneswar: t("বানেশ্বর হাট", "Baneswar Hat"),
+                        Mohasthangarh: t("মহাস্থানগড়", "Mohasthangarh"),
+                        Jessore: t("যশোর আড়ত", "Jessore Wholesalers")
+                      };
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => setPriceMarketFilter(m)}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                            priceMarketFilter === m ? "bg-white text-emerald-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          {label[m]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
                   
-                  {/* Recharts area chart element */}
-                  <div className="h-44 w-full text-[10px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={prepareChartData()} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" tickLine={false} />
-                        <YAxis tickLine={false} axisLine={false} />
-                        <Tooltip />
-                        <Area type="monotone" dataKey={t("বাজার মূল্য (৳)", "Market Price (৳)")} stroke="#059669" strokeWidth={2.5} fillOpacity={1} fill="url(#priceGradient)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                  {/* Daily prices loop list */}
+                  <div className="md:col-span-5 space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                    {marketPrices.map((item, idx) => {
+                      const prices = item[priceMarketFilter] || [];
+                      const latestPrice = prices[prices.length - 1] || 0;
+                      const prevPrice = prices[prices.length - 2] || 0;
+                      const isUp = latestPrice > prevPrice;
+                      const isSame = latestPrice === prevPrice;
+
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => setSelectedCropPrice(item)}
+                          className={`w-full flex items-center justify-between p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                            selectedCropPrice?.name === item.name 
+                              ? "bg-emerald-50 border-emerald-200/95 ring-2 ring-emerald-500/20" 
+                              : "bg-white hover:bg-slate-50 border-slate-100"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-sm">
+                              {getCategoryIcon(item.name.includes("ধান") ? "ধান" : item.name.includes("আলু") ? "সবজি" : item.name.includes("পেঁয়াজ") ? "সবজি" : "সবজি")}
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-800">{translateCrop(item.name)}</p>
+                              <p className="text-[10px] text-slate-400">{t("সর্বশেষ আপডেট", "Latest Update")}</p>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-xs font-bold text-slate-900">৳{latestPrice}</p>
+                            {isSame ? (
+                              <span className="text-[9px] text-slate-500 font-medium">{t("স্থির", "Stable")}</span>
+                            ) : isUp ? (
+                              <span className="text-[9px] text-green-600 font-bold flex items-center gap-0.5 justify-end">
+                                <TrendingUp className="w-3" /> {t("বৃদ্ধি", "Up")}
+                              </span>
+                            ) : (
+                              <span className="text-[9px] text-red-500 font-bold flex items-center gap-0.5 justify-end">
+                                <TrendingDown className="w-3 px-0.5" /> {t("হ্রাস", "Down")}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Graphical representation (Recharts) */}
+                  <div className="md:col-span-7 bg-slate-50 border border-slate-100 p-4 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <h4 className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                          <TrendingUp className="w-4 h-4 text-emerald-600" /> {translateCrop(selectedCropPrice?.name || "")} - {t("এর মূল্য পরিচিত্র", "Price Trend Chart")}
+                        </h4>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 py-0.5 px-2 rounded-full font-bold">{t("৭ দিনের গড় গ্রাফ", "7-Day Average")}</span>
+                      </div>
+                      
+                      {/* Recharts area chart element */}
+                      <div className="h-44 w-full text-[10px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={prepareChartData()} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="name" tickLine={false} />
+                            <YAxis tickLine={false} axisLine={false} />
+                            <Tooltip />
+                            <Area type="monotone" dataKey={t("বাজার মূল্য (৳)", "Market Price (৳)")} stroke="#059669" strokeWidth={2.5} fillOpacity={1} fill="url(#priceGradient)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="bg-white/80 p-2.5 rounded-xl border border-slate-100 text-[11px] leading-relaxed text-slate-600">
+                      <span className="font-bold text-emerald-800">{t("পরামর্শ: ", "Action Tip: ")}</span>
+                      {t(
+                        "উক্ত পাইকারি মূল্যের উপর ভিত্তি করে আপনার খামারের উৎপাদিত ফসল সরাসরি বাজারে ন্যায্য মূল্যে ডাকুন।",
+                        "Based on these live wholesale indices, you can auction your harvested crops directly on our marketplace with realistic competitive pricing."
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              </>
+            ) : (
+              /* Conditional block for local representing prices with filters */
+              <div className="relative z-10 animate-in fade-in duration-200">
+                <div className="mb-4">
+                  <span className="text-[10px] tracking-widest text-emerald-700 uppercase font-black bg-emerald-50 border border-emerald-100 py-1 px-2.5 rounded-full">
+                    {t("অফিসিয়াল প্রতিনিধি দর মনিটরিং", "Verified Representative Area Prices")}
+                  </span>
+                  <h3 className="text-base font-bold text-slate-800 mt-2">{t("ইউনিয়ন ও গ্রাম ভিত্তিক স্থানীয় বর্তমান বাজার দর", "Local Union & Village Current Market Prices")}</h3>
+                  <p className="text-xs text-slate-500">{t("সুপার এডমিন দ্বারা যাচাইকৃত ও অনুমোদিত সঠিক বাজার মূল্যের তালিকা", "List of accurate prices verified and approved by the Super Admin")}</p>
+                </div>
+
+                {/* Filters Board */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-100 mb-4">
+                  <div>
+                    <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("বিভাগ", "Division")}</label>
+                    <select
+                      value={pubFilterDiv}
+                      onChange={(e) => {
+                        setPubFilterDiv(e.target.value);
+                        setPubFilterDist("all");
+                      }}
+                      className="w-full text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                    >
+                      <option value="all">{t("সব বিভাগ", "All Divisions")}</option>
+                      {Object.keys(bdGeography).map(div => (
+                        <option key={div} value={div}>{div}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("জেলা", "District")}</label>
+                    <select
+                      value={pubFilterDist}
+                      disabled={pubFilterDiv === "all"}
+                      onChange={(e) => setPubFilterDist(e.target.value)}
+                      className="w-full text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none disabled:bg-slate-100"
+                    >
+                      <option value="all">{t("সব জেলা", "All Districts")}</option>
+                      {pubFilterDiv !== "all" && bdGeography[pubFilterDiv]?.map(dist => (
+                        <option key={dist} value={dist}>{dist}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("উপজেলা", "Upazila")}</label>
+                    <input
+                      type="text"
+                      placeholder={t("যেমন: শেরপুর", "e.g. Sherpur")}
+                      value={pubFilterUpazila}
+                      onChange={(e) => setPubFilterUpazila(e.target.value)}
+                      className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("ফসল/পণ্য", "Crop/Product")}</label>
+                    <input
+                      type="text"
+                      placeholder={t("যেমন: ধান", "e.g. Rice")}
+                      value={pubFilterProduct}
+                      onChange={(e) => setPubFilterProduct(e.target.value)}
+                      className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none text-slate-900"
+                    />
                   </div>
                 </div>
 
-                <div className="bg-white/80 p-2.5 rounded-xl border border-slate-100 text-[11px] leading-relaxed text-slate-600">
-                  <span className="font-bold text-emerald-800">{t("পরামর্শ: ", "Action Tip: ")}</span>
-                  {t(
-                    "উক্ত পাইকারি মূল্যের উপর ভিত্তি করে আপনার খামারের উৎপাদিত ফসল সরাসরি বাজারে ন্যায্য মূল্যে ডাকুন।",
-                    "Based on these live wholesale indices, you can auction your harvested crops directly on our marketplace with realistic competitive pricing."
-                  )}
-                </div>
-              </div>
+                {/* Local Price List Output */}
+                {publicApprovedPrices.length === 0 ? (
+                  <div className="bg-slate-50 rounded-2xl p-8 border border-slate-100 text-center text-slate-500">
+                    <p className="text-xs font-medium">🌾 {t("উক্ত ফিল্টার অনুযায়ী কোনো অনুমোদিত স্থানীয় বাজার দর রেকর্ড পাওয়া যায়নি।", "No approved local market prices found matching the filters.")}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">{t("পণ্য অথবা জেলার প্রথম কয়েকটি অক্ষর বাংলায় টাইপ করুন।", "Try searching for another area or typing keywords in Bengali.")}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[350px] overflow-y-auto pr-1">
+                    {publicApprovedPrices.map((priceItem) => (
+                      <div key={priceItem._id} className="bg-stone-50/40 hover:bg-emerald-50/10 border border-slate-100/90 rounded-2xl p-3.5 transition-all text-slate-800">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[9px] bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 rounded-full select-none">
+                              {priceItem.unit}
+                            </span>
+                            <h4 className="text-sm font-black mt-1 text-slate-900">{priceItem.productName}</h4>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-extrabold text-emerald-700">৳{priceItem.price}</span>
+                            <p className="text-[9px] text-slate-400 mt-0.5">/{priceItem.unit}</p>
+                          </div>
+                        </div>
 
-            </div>
+                        <div className="mt-3 pt-3 border-t border-dashed border-slate-200/60 space-y-1 text-[10px] text-slate-500">
+                          <p className="flex items-center gap-1 text-slate-600">
+                            📍 <strong>{priceItem.upazila}</strong>, {priceItem.district}, {priceItem.division}
+                          </p>
+                          <p className="flex items-center gap-1 flex-wrap text-slate-400">
+                            👤 {t("রিপোর্টার: ", "Reporter: ")} <span className="font-semibold text-slate-600">{priceItem.representativeName}</span>
+                            <span className="text-emerald-500 text-[9px] font-bold">✔ {t("অনুমোদিত প্রতিনিধি", "Verified Official")}</span>
+                          </p>
+                          <p className="text-[9px] text-slate-400 font-mono">📅 {t("আপডেট তারিখ:", "Updated:")} {priceItem.submissionDate}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Section 3: Digital Mandi / Farmers' Marketplace */}
@@ -1935,8 +2328,9 @@ export default function App() {
 
       {/* Decorative Bottom Credit Line */}
       {isOperatorOpen && (
-        <div id="operator-modal" className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto select-none">
-          {!isAdminLoggedIn ? (
+        <div id="operator-modal" className="fixed inset-0 bg-slate-900/75 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto font-sans">
+          {!currentUser ? (
+            /* ================= LOGGED OUT: LOGIN / REGISTRATION WORKFLOW ================= */
             <div className="bg-white rounded-3xl max-w-md w-full border border-emerald-100 overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
               
               {/* Header */}
@@ -1953,80 +2347,828 @@ export default function App() {
                   </div>
                   <div>
                     <span className="text-[10px] bg-emerald-500/30 text-emerald-200 px-2.5 py-0.5 rounded-full uppercase font-black tracking-widest">
-                      {t("এডমিন নিরাপত্তা", "Admin Security")}
+                      {isRegisteringRep ? t("রেজিস্ট্রেশন পোর্টাল", "Registration Portal") : t("নিরাপত্তা পোর্টাল", "Security Portal")}
                     </span>
-                    <h3 className="text-lg font-bold mt-1 text-white">{t("অপারেটর সাইন-ইন", "Operator Sign-In")}</h3>
+                    <h3 className="text-lg font-bold mt-1 text-white">
+                      {isRegisteringRep ? t("প্রতিনিধি নিবন্ধন ফোরাম", "Representative Registration") : t("কৃষি সংযোগ গেটওয়ে", "Krishi Shongjog Portal")}
+                    </h3>
                   </div>
                 </div>
               </div>
 
               {/* Form Content */}
-              <form onSubmit={handleAdminLogin} className="p-6 space-y-4 text-slate-700">
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  {t(
-                    "সিস্টেম কন্ট্রোল সেন্টার এবং কৃষি বাজার মডারেশন অ্যাক্সেস করতে অনুগ্রহ করে নিচে আপনার এডমিন ইমেল এবং পাসওয়ার্ড দিন।",
-                    "To access system controls and marketplace moderation, please sign in with your administrator credentials below."
-                  )}
-                </p>
-
-                {adminError && (
-                  <div className="p-3 bg-red-50 border border-red-100 text-red-700 rounded-2xl text-xs font-semibold">
-                    ⚠️ {adminError}
+              <form onSubmit={handleAuthSubmit} className="p-6 space-y-4 text-slate-700">
+                {authError && (
+                  <div className="p-3 bg-red-50 border border-red-150 text-red-700 rounded-2xl text-xs font-semibold">
+                    ⚠️ {authError}
+                  </div>
+                )}
+                {authSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-150 text-emerald-800 rounded-2xl text-xs font-semibold">
+                    ✔ {authSuccess}
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-[11px] text-slate-500 font-bold mb-1.5 uppercase tracking-wider">
-                    {t("ইমেইল ঠিকানা *", "Email Address *")}
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="sabjadulislamsun15@gmail.com"
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    className="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-900"
-                  />
-                </div>
+                {isRegisteringRep ? (
+                  /* REPRESENTATIVE REGISTRATION FIELD BOARD */
+                  <div className="space-y-3.5 max-h-[50vh] overflow-y-auto pr-1 text-slate-705">
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      {t(
+                        "স্থানীয় বাজার দর নিয়মিত মনিটরিং ও প্রেরণের জন্য নিচের সঠিক তথ্যগুলো পূরণ করে আবেদন পেশ করুন।",
+                        "Please fill in authentic regional information below to apply as a live price tracking representative."
+                      )}
+                    </p>
 
-                <div>
-                  <label className="block text-[11px] text-slate-500 font-bold mb-1.5 uppercase tracking-wider">
-                    {t("গোপন পাসওয়ার্ড *", "Secret Password *")}
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-900"
-                  />
-                </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("পূর্ণ নাম *", "Full Name *")}</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder={t("উদা: আমজাদ হোসেন", "e.g. Amjad Hossain")}
+                        value={repRegForm.fullName}
+                        onChange={(e) => setRepRegForm({ ...repRegForm, fullName: e.target.value })}
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
 
-                {/* Convenient Helper Instruction Hook for evaluation testing */}
-                <div className="bg-amber-50/50 rounded-2xl border border-amber-100 p-3 text-[10px] text-amber-800 leading-relaxed">
-                  💡 <strong>{t("এডমিন ক্রেডেনশিয়াল:", "Admin Credentials:")}</strong><br/>
-                  📧 Email: <span className="font-mono font-bold select-all bg-amber-150/40 px-1 rounded">sabjadulislamsun15@gmail.com</span><br/>
-                  🔑 Password: <span className="font-mono font-bold select-all bg-amber-150/40 px-1 rounded">sanjadul123456</span>
-                </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("মোবাইল নম্বর *", "Phone Number *")}</label>
+                        <input
+                          type="tel"
+                          required
+                          placeholder="017XXXXXXXX"
+                          value={repRegForm.phone}
+                          onChange={(e) => setRepRegForm({ ...repRegForm, phone: e.target.value })}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("পাসওয়ার্ড *", "Password *")}</label>
+                        <input
+                          type="password"
+                          required
+                          placeholder="••••••••"
+                          value={repRegForm.password}
+                          onChange={(e) => setRepRegForm({ ...repRegForm, password: e.target.value })}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("ইমেইল ঠিকানা *", "Email Address *")}</label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="rep@example.com"
+                        value={repRegForm.email}
+                        onChange={(e) => setRepRegForm({ ...repRegForm, email: e.target.value })}
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("বিভাগ *", "Division *")}</label>
+                        <select
+                          value={repRegForm.division}
+                          onChange={(e) => setRepRegForm({ ...repRegForm, division: e.target.value, district: bdGeography[e.target.value]?.[0] || "" })}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2.5 font-bold text-slate-800"
+                        >
+                          {Object.keys(bdGeography).map(div => (
+                            <option key={div} value={div}>{div}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("জেলা *", "District *")}</label>
+                        <select
+                          value={repRegForm.district}
+                          onChange={(e) => setRepRegForm({ ...repRegForm, district: e.target.value })}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2.5 font-bold text-slate-800"
+                        >
+                          {bdGeography[repRegForm.division]?.map(dist => (
+                            <option key={dist} value={dist}>{dist}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("উপজেলা *", "Upazila *")}</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder={t("যেমন: শেরপুর", "e.g. Sherpur")}
+                          value={repRegForm.upazila}
+                          onChange={(e) => setRepRegForm({ ...repRegForm, upazila: e.target.value })}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{t("ইউনিয়ন / গ্রাম *", "Union / Village *")}</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder={t("যেমন: গোপালপুর", "e.g. Gopalpur")}
+                          value={repRegForm.unionOrVillage}
+                          onChange={(e) => setRepRegForm({ ...repRegForm, unionOrVillage: e.target.value })}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* CONSOLIDATED SIGN-IN FIELDS */
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-505 leading-relaxed">
+                      {t(
+                        "এডমিন কন্ট্রোল সেন্টার অথবা অনুমোদিত প্রতিনিধির ড্যাশবোর্ডে সাইন-ইন করতে ব্রাউজারে লগইন তথ্য দিন।",
+                        "Please authenticate with your Admin credentials or registered Representative profile below."
+                      )}
+                    </p>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-500 font-bold mb-1.5 uppercase tracking-wider">
+                        {t("ইমেইল ঠিকানা *", "Email Address *")}
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="sabjadulislamsun15@gmail.com"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-500 font-bold mb-1.5 uppercase tracking-wider">
+                        {t("পাসওয়ার্ড *", "Password *")}
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-900"
+                      />
+                    </div>
+
+                    {/* Developer assistance hint */}
+                    <div className="bg-amber-50 rounded-2xl border border-amber-100 p-3 text-[10px] text-amber-800 leading-relaxed">
+                      💡 <strong>{t("এডমিন লগইন সাহায্য:", "Admin Credentials Reference:")}</strong><br/>
+                      📧 E: <span className="font-mono font-bold select-all bg-amber-100/50 px-1 rounded">sabjadulislamsun15@gmail.com</span><br/>
+                      🔑 P: <span className="font-mono font-bold select-all bg-amber-100/50 px-1 rounded">sanjadul123456</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-2 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsOperatorOpen(false)}
-                    className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                    onClick={() => {
+                      if (isRegisteringRep) {
+                        setIsRegisteringRep(false);
+                      } else {
+                        setIsOperatorOpen(false);
+                      }
+                    }}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition-colors"
                   >
                     {t("বন্ধ করুন", "Cancel")}
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-3 bg-emerald-800 hover:bg-emerald-950 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                    className="flex-1 py-2.5 bg-emerald-800 hover:bg-emerald-950 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
                   >
-                    {t("লগইন করুন", "Sign In")}
+                    {isRegisteringRep ? t("আবেদন সাবমিট করুন", "Register Now") : t("লগইন করুন", "Sign In")}
                   </button>
                 </div>
 
+                <div className="pt-3 border-t border-slate-100 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRegisteringRep(!isRegisteringRep);
+                      setAuthSuccess("");
+                      setAuthError("");
+                    }}
+                    className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer"
+                  >
+                    {isRegisteringRep 
+                      ? t("ইতিমধ্যে অ্যাকাউন্ট আছে? লগইন করুন", "Already have an account? Sign in here")
+                      : t("অনুমোদিত বাজার প্রতিনিধি হতে চান? আবেদন করুন", "Want to register as regional representative? Apply here")
+                    }
+                  </button>
+                </div>
               </form>
+            </div>
+          ) : currentUser.role === "protinidhi" ? (
+            /* ================= ROLE: PROTINIDHI (REPRESENTATIVE) PANEL ================= */
+            <div className="bg-white rounded-3xl max-w-4xl w-full border border-emerald-100 overflow-hidden shadow-2xl animate-in fade-in duration-200 my-8 text-slate-800 font-sans">
+              
+              {/* Header */}
+              <div className="bg-gradient-to-r from-emerald-700 via-emerald-800 to-emerald-950 text-white p-6 relative">
+                <button 
+                  onClick={() => setIsOperatorOpen(false)}
+                  className="absolute top-5 right-5 text-emerald-200 hover:text-white bg-black/20 p-2 rounded-full transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-[10px] bg-emerald-500/20 text-emerald-250 border border-emerald-500/30 px-2.5 py-0.5 rounded-full uppercase font-black tracking-wider">
+                    {t("প্যানেল রিপোর্টার", "Official Regional Panel")}
+                  </p>
+                </div>
+                <h3 className="text-xl font-bold">{t("স্থানীয় বাজার দর দাখিল সেন্টার", "Regional Representative Market Office")}</h3>
+                <p className="text-xs text-emerald-100 mt-1">
+                  👤 {currentUser.name} ({currentUser.email}) | 📍 <strong>{currentUser.representativeProfile?.upazila}</strong>, {currentUser.representativeProfile?.division}
+                </p>
+              </div>
+
+              {/* Status Notice Block */}
+              {currentUser.status !== "Approved" ? (
+                <div className="p-8 text-center space-y-3 bg-amber-50/40 border-b border-amber-100">
+                  <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-xl mx-auto">⏳</div>
+                  <h4 className="text-sm font-black text-amber-900">
+                    {currentUser.status === "Rejected" 
+                      ? t("দুঃখিত, আপনার আবেদনটি গ্রহণযোগ্য বিবেচিত হয়নি", "Representative Application Rejected")
+                      : t("আপনার প্রতিনিধি আবেদন ফাইলটি অনুমোদনের অপেক্ষায় আছে", "Representative Application Pending Approval")
+                    }
+                  </h4>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                    {currentUser.status === "Rejected"
+                      ? t("নিরাপত্তা নিয়মের অবমাননার কারণে আবেদন বাতিল করা হয়েছে। অনুসন্ধানের জন্য সাহায্য কেন্দ্রে ইমেইল করুন।", "Your status was marked rejected. Please reach support panel for correction.")
+                      : t("সুপার অ্যাডমিন আপনার অ্যাকাউন্ট ফাইল ও তথ্য যাচাই করার পর অ্যাকাউন্টটি সক্রিয় করবেন। সক্রিয় হওয়া মাত্রই আপনি দর হালনাগাদ করতে পারবেন।", "To prevent local black-marketing or false pricing, new reporters must be authorized by Super Admin manually before pricing access is granted.")
+                    }
+                  </p>
+                </div>
+              ) : (
+                /* Approved Representative workspace */
+                <div className="p-6 grid grid-cols-1 md:grid-cols-12 gap-6 max-h-[68vh] overflow-y-auto">
+                  
+                  {/* Left panel: Add price form */}
+                  <div className="md:col-span-12 bg-stone-50 border border-slate-200/80 p-4.5 rounded-2xl h-fit">
+                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest pb-2 border-b border-dashed border-slate-200 mb-3">
+                      🌾 {t("নতুন ফসল মূল্য তালিকাভুক্তি", "Submit Local Market Price")}
+                    </h4>
+
+                    {repSuccessMsg && <div className="p-2 mb-3 bg-emerald-50 text-emerald-800 text-[11px] rounded-lg border border-emerald-100 font-bold">✔ {repSuccessMsg}</div>}
+                    {repErrorMsg && <div className="p-2 mb-3 bg-rose-50 text-rose-750 text-[11px] rounded-lg border border-rose-100 font-medium">⚠️ {repErrorMsg}</div>}
+
+                    {editingPriceObj ? (
+                      /* Editing form overlay */
+                      <form onSubmit={handleRepPriceEditSubmit} className="space-y-3">
+                        <div className="bg-amber-100/40 p-2 text-[10px] text-amber-800 rounded font-bold">
+                          🛠 {t("দাখিলকৃত মুল্য সংশোধন", "Editing Submitted Price Block")}
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-1">{t("পণ্যের নাম *", "Product Name *")}</label>
+                          <input
+                            type="text"
+                            required
+                            value={editPriceForm.productName}
+                            onChange={(e) => setEditPriceForm({ ...editPriceForm, productName: e.target.value })}
+                            className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-1">{t("বাজার মূল্য (৳) *", "Market Price *")}</label>
+                            <input
+                              type="number"
+                              required
+                              value={editPriceForm.price}
+                              onChange={(e) => setEditPriceForm({ ...editPriceForm, price: e.target.value })}
+                              className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-1">{t("একক *", "Unit *")}</label>
+                            <select
+                              value={editPriceForm.unit}
+                              onChange={(e) => setEditPriceForm({ ...editPriceForm, unit: e.target.value })}
+                              className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2"
+                            >
+                              <option value="মন">মন</option>
+                              <option value="কেজি">কেজি</option>
+                              <option value="বস্তা">বস্তা</option>
+                              <option value="পিস">পিস</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setEditingPriceObj(null)}
+                            className="flex-1 py-2 bg-slate-200 text-slate-800 text-xs font-bold rounded-lg cursor-pointer"
+                          >
+                            {t("বাতিল", "Cancel")}
+                          </button>
+                          <button
+                            type="submit"
+                            className="flex-1 py-2 bg-amber-600 text-white text-xs font-bold rounded-lg cursor-pointer"
+                          >
+                            {t("সংরক্ষণ", "Save")}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      /* Price entry form */
+                      <form onSubmit={handleRepPriceSubmit} className="space-y-3.5 text-slate-705">
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase tracking-wider">{t("ফসল বা শাকসবজি নাম *", "Crop or Product Name *")}</label>
+                          <select
+                            value={repNewPriceForm.productName}
+                            onChange={(e) => setRepNewPriceForm({ ...repNewPriceForm, productName: e.target.value })}
+                            className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2.5 font-bold text-slate-800"
+                          >
+                            <option value="বোরো ধান">বোরো ধান</option>
+                            <option value="আমন ধান">আমন ধান</option>
+                            <option value="লাল আলু">লাল আলু</option>
+                            <option value="পেঁয়াজ">দেশি পেঁয়াজ</option>
+                            <option value="রসুন">রসুন</option>
+                            <option value="শরিষার তৈল">শরিষার তৈল</option>
+                            <option value="পাট">সোনালী পাট</option>
+                            <option value="কাঁচা মরিচ">কাঁচা মরিচ</option>
+                          </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase tracking-wider">{t("বর্তমান দর (৳) *", "Market Price (৳) *")}</label>
+                            <input
+                              type="number"
+                              required
+                              placeholder="যেমন: ১৬৫০"
+                              value={repNewPriceForm.price}
+                              onChange={(e) => setRepNewPriceForm({ ...repNewPriceForm, price: e.target.value })}
+                              className="w-full text-xs bg-white border border-slate-202 rounded-lg p-2 focus:outline-none text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase tracking-wider">{t("পরিমাপ একক *", "Unit Category *")}</label>
+                            <select
+                              value={repNewPriceForm.unit}
+                              onChange={(e) => setRepNewPriceForm({ ...repNewPriceForm, unit: e.target.value })}
+                              className="w-full text-xs bg-white border border-slate-202 rounded-lg p-2 font-bold text-slate-800"
+                            >
+                              <option value="মন">মন (৪০ কেজি)</option>
+                              <option value="কেজি">কেজি (Kilogram)</option>
+                              <option value="বস্তা">বস্তা (Sack)</option>
+                              <option value="পিস">পিস (Pieces)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-100 p-2.5 rounded-lg border border-slate-200 text-[10px] space-y-1 text-slate-600">
+                          <p>📍 <strong>{t("তালিকাভুক্ত এলাকা:", "Target Region Listing:")}</strong></p>
+                          <p>বিভাগ: {currentUser.representativeProfile?.division}, জেলা: {currentUser.representativeProfile?.district}, উপজেলা: {currentUser.representativeProfile?.upazila}</p>
+                          <span className="block text-[9px] text-red-500 mt-0.5">* প্রতিনিধি কেবল তার নিজ এলাকার বাজার দাম প্রেরণের নিয়ম রয়েছে।</span>
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full py-2.5 bg-emerald-850 hover:bg-emerald-950 text-white text-xs font-black rounded-xl transition-all shadow-sm cursor-pointer"
+                        >
+                          📢 {t("দর সাবমিট করুন (এডমিন স্ক্রীনিং)", "Submit Local Price (Pending Admin View)")}
+                        </button>
+                      </form>
+                    )}
+                  </div>
+
+                  {/* Right panel: Submissions list */}
+                  <div className="md:col-span-12 space-y-3 mt-4">
+                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest pb-1 border-b border-slate-100 flex justify-between items-center">
+                      <span>📋 {t("আপনার দাখিলকৃত বাজার দরের তালিকা", "Your Historical Submissions")}</span>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-full font-bold font-mono">মোট: {repPrices.length}</span>
+                    </h4>
+
+                    <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                      {repPrices.length === 0 ? (
+                        <div className="text-center py-12 text-slate-400 border border-dashed border-slate-202 rounded-2xl text-xs font-medium bg-slate-50/50">
+                          🌾 {t("আপনি এখনও কোনো স্থানীয় বাজার দর পাঠাননি।", "You haven't submitted any prices yet.")}
+                        </div>
+                      ) : (
+                        repPrices.map((item) => (
+                          <div key={item._id} className="p-3 bg-slate-105 border border-slate-150 rounded-xl flex justify-between items-start gap-4">
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[9px] bg-slate-200 text-slate-705 font-bold px-1.5 py-0.5 rounded">{item.unit}</span>
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                                  item.status === "Approved" ? "bg-green-100 text-green-800" :
+                                  item.status === "Rejected" ? "bg-red-100 text-red-800" :
+                                  "bg-yellow-101 text-yellow-850"
+                                }`}>
+                                  {item.status === "Approved" ? t("অনুমোদিত", "Approved") :
+                                   item.status === "Rejected" ? t("খারিজকৃত", "Rejected") :
+                                   t("পরীক্ষাধীন", "Pending Approval")
+                                  }
+                                </span>
+                              </div>
+                              <h5 className="text-xs font-black text-slate-800 mt-1.5">{item.productName}</h5>
+                              <p className="text-[9px] text-slate-400 font-mono mt-0.5">📅 {item.submissionDate} | 📍 {item.upazila}</p>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="block text-xs font-black text-slate-800">৳{item.price}</span>
+                              {item.status === "Pending" && (
+                                <button
+                                  onClick={() => {
+                                    setEditingPriceObj(item);
+                                    setEditPriceForm({
+                                      productName: item.productName,
+                                      price: String(item.price),
+                                      unit: item.unit,
+                                      division: item.division,
+                                      district: item.district,
+                                      upazila: item.upazila
+                                    });
+                                  }}
+                                  className="mt-1 text-[9px] bg-amber-500 hover:bg-amber-600 text-white font-bold p-1 px-2 rounded hover:shadow-xs transition-all cursor-pointer font-sans"
+                                >
+                                  ✏ {t("সংশোধন করুন", "Edit Details")}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center text-xs">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl cursor-pointer transition-colors"
+                >
+                  🚪 {t("সাইন-আউট", "Logout")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsOperatorOpen(false)}
+                  className="px-5 py-2 ... bg-slate-200 hover:bg-slate-300 text-slate-800 font-extrabold rounded-xl cursor-pointer"
+                >
+                  {t("প্যানেল বন্ধ করুন", "Close Panel")}
+                </button>
+              </div>
+
+            </div>
+          ) : currentUser.role === "admin" ? (
+            /* ================= ROLE: SUPER ADMIN DASHBOARD ================= */
+            <div className="bg-white rounded-3xl max-w-4xl w-full border border-orange-100 overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 my-8 text-slate-850 font-sans">
+              
+              {/* Header */}
+              <div className="bg-gradient-to-r from-amber-700 via-orange-850 to-amber-900 text-white p-6 relative">
+                <button 
+                  onClick={() => setIsOperatorOpen(false)}
+                  className="absolute top-5 right-5 text-amber-200 hover:text-white bg-black/20 p-2 rounded-full transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <p className="text-[10px] bg-amber-500/20 text-yellow-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full uppercase font-bold w-fit mb-1">{t("পাওয়ার প্যানেল", "Root Control Panel")}</p>
+                <h3 className="text-xl font-bold">{t("সুপার এডমিন কন্ট্রোল সেন্টার & মেম্বার ড্যাশবোর্ড", "Super Admin Control Center & Moderation")}</h3>
+                <p className="text-xs text-amber-100/90 leading-relaxed mt-1">
+                  👤 {currentUser.name} | {t("সারা দেশের প্রতিনিধি নিবন্ধন ফাইল, শস্য দর অনুমোদন ও সাধারণ বাজার দর নিয়ন্ত্রণ সিস্টেম", "Moderation Hub for Representative registrations, local price lists, and audit logs")}
+                </p>
+              </div>
+
+              {/* Sub Tabs Selection */}
+              <div className="flex border-b border-slate-100 bg-slate-50/50 px-6 pt-3 select-none flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setAdminSelectedTab("reps")}
+                  className={`pb-3 text-xs font-black px-4 border-b-2 transition-all cursor-pointer ${
+                    adminSelectedTab === "reps" 
+                      ? "border-amber-700 text-amber-900 font-black" 
+                      : "border-transparent text-slate-500 hover:text-slate-850"
+                  }`}
+                >
+                  👤 {t("প্রতিনিধি আবেদনসমূহ", "Rep Registrations")} ({adminReps.filter(r => r.status === "Pending").length} {t("নতুন", "New")})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminSelectedTab("prices")}
+                  className={`pb-3 text-xs font-black px-4 border-b-2 transition-all cursor-pointer ${
+                    adminSelectedTab === "prices" 
+                      ? "border-amber-700 text-amber-900 font-black" 
+                      : "border-transparent text-slate-500 hover:text-slate-850"
+                  }`}
+                >
+                  🌾 {t("স্থানীয় দর মডারেশন", "Representative Local Prices")} ({adminPriceSubmissions.filter(p => p.status === "Pending").length} {t("মূল্যায়নকারী", "Pending")})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminSelectedTab("logs")}
+                  className={`pb-3 text-xs font-black px-4 border-b-2 transition-all cursor-pointer ${
+                    adminSelectedTab === "logs" 
+                      ? "border-amber-700 text-amber-900 font-black" 
+                      : "border-transparent text-slate-500 hover:text-slate-850"
+                  }`}
+                >
+                  📝 {t("অডিট সিস্টেম লগ", "Audit logs")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminSelectedTab("reps");
+                    setIsAdminLoggedIn(true); // fallbacks back to standard lists toggle state
+                    setIsAddingCrop(false); 
+                    setOperatorTab("prices"); // triggers wholesale
+                    setCurrentUser(null); // safely logs out to switch to old framework view if needed
+                  }}
+                  className="pb-3 text-xs font-bold px-4 text-emerald-800 hover:text-black hover:border-b-2 hover:border-emerald-700 cursor-pointer flex items-center gap-1.5 ml-auto"
+                >
+                  🏬 {t("পাইকারি ইনডেক্স টুলস", "Wholesale Indices Editor")}
+                </button>
+              </div>
+
+              {/* Tab Outputs */}
+              <div className="p-6 max-h-[60vh] overflow-y-auto">
+                {adminSelectedTab === "reps" && (
+                  /* TAB: REPRESENTATIVE MANAGEMENT */
+                  <div className="space-y-4 animate-in fade-in duration-200 text-slate-800">
+                    <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest pb-1 border-b border-slate-150">{t("প্রতিনিধি ফাইল ও সত্যতা যাচাইকারক বোর্ড", "Representative File & Credentials Audit Board")}</h4>
+                    
+                    <div className="space-y-3">
+                      {adminReps.length === 0 ? (
+                        <div className="text-center py-10 text-slate-400 border border-dashed border-slate-200 rounded-xl text-xs bg-slate-50/50 font-semibold text-slate-600">
+                          {t("কোনো প্রতিনিধির ডাটাবেস আবেদন পাওয়া যায়নি।", "No representative registration profiles loaded in database.")}
+                        </div>
+                      ) : (
+                        adminReps.map((rep) => (
+                          <div key={rep._id} className="p-4 bg-slate-50 border border-slate-150 rounded-2xl flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-extrabold text-slate-900">{rep.fullName}</span>
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
+                                  rep.status === "Approved" ? "bg-green-100 text-green-800" :
+                                  rep.status === "Rejected" ? "bg-red-100 text-red-800" :
+                                  "bg-yellow-105 text-yellow-850"
+                                }`}>
+                                  {rep.status === "Approved" ? t("সক্রিয় প্রতিনিধি", "Verified Official") :
+                                   rep.status === "Rejected" ? t("বাতিলকৃত", "Rejected") :
+                                   t("অপেক্ষমান", "Pending Review")
+                                  }
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-505 mt-1 font-sans">
+                                📧 E: {rep.email} | 📞 P: {rep.phone}
+                              </p>
+                              <p className="text-[10px] text-slate-600 font-medium mt-0.5">
+                                📍 এলাকা: {rep.unionOrVillage}, {rep.upazila}, {rep.district}, {rep.division}
+                              </p>
+                            </div>
+
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleRepApproval(rep._id, "Rejected")}
+                                className="px-3 py-1.5 bg-red-50 hover:bg-red-105 border border-red-200 text-red-700 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                              >
+                                ✖ {t("খারিজ", "Reject")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRepApproval(rep._id, "Approved")}
+                                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-850 text-white font-black text-[10px] rounded-lg transition-all cursor-pointer shadow-sm"
+                              >
+                                ✔ {t("অনুমোদন দিন", "Approve Application")}
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {adminSelectedTab === "prices" && (
+                  /* TAB: REPRESENTATIVE PRICES LIST MODERATION */
+                  <div className="space-y-4 animate-in fade-in duration-200 text-slate-800">
+                    <h4 className="text-xs font-black text-slate-705 uppercase tracking-widest pb-1 border-b border-slate-150">{t("প্রতিনিধি প্রেরিত স্থানীয় বাজার দর স্ক্রীনিং", "Representative Prices Audit & Wrong Entry Moderation")}</h4>
+
+                    {editingPriceObj && (
+                      /* Admin price edit overlay form */
+                      <form onSubmit={handleAdminPriceEditSubmit} className="bg-amber-50 p-4 border border-amber-100 rounded-2xl space-y-3.5 mb-4 font-sans text-slate-705">
+                        <h5 className="text-xs font-black text-amber-900 border-b border-dashed border-amber-200 pb-1 flex justify-between items-center">
+                          <span>🛠 {t("দাখিলকৃত তথ্যে ভুল সংশোধন (Admin Editor Mode)", "Direct Entry Edit Form")}</span>
+                          <button type="button" onClick={() => setEditingPriceObj(null)} className="text-slate-400 font-bold">✕</button>
+                        </h5>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-650 mb-1">{t("পণ্য/ফসল নাম *", "Product Name *")}</label>
+                            <input
+                              type="text"
+                              required
+                              value={editPriceForm.productName}
+                              onChange={(e) => setEditPriceForm({ ...editPriceForm, productName: e.target.value })}
+                              className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-655 mb-1">{t("উপজেলা *", "Upazila *")}</label>
+                            <input
+                              type="text"
+                              required
+                              value={editPriceForm.upazila}
+                              onChange={(e) => setEditPriceForm({ ...editPriceForm, upazila: e.target.value })}
+                              className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-650 mb-1">{t("বাজার মূল্য (৳) *", "Market Price *")}</label>
+                            <input
+                              type="number"
+                              required
+                              value={editPriceForm.price}
+                              onChange={(e) => setEditPriceForm({ ...editPriceForm, price: e.target.value })}
+                              className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-650 mb-1">{t("পরিমাপ একক *", "Unit *")}</label>
+                            <select
+                              value={editPriceForm.unit}
+                              onChange={(e) => setEditPriceForm({ ...editPriceForm, unit: e.target.value })}
+                              className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg font-semibold text-slate-800"
+                            >
+                              <option value="মন">মন</option>
+                              <option value="কেজি">কেজি</option>
+                              <option value="বস্তা">বস্তা</option>
+                              <option value="পিস">পিস</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 justify-end pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingPriceObj(null)}
+                            className="px-4 py-2 bg-slate-202 text-slate-700 text-xs font-bold rounded-lg cursor-pointer"
+                          >
+                            {t("বাতিল করুন", "Cancel")}
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-4 py-2 bg-[#d35400] text-white text-xs font-black rounded-lg cursor-pointer shadow-sm hover:bg-[#a04000]"
+                          >
+                            {t("তথ্য ঠিক করুন & সেভ দিন", "Save Corrected Data")}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    <div className="space-y-3">
+                      {adminPriceSubmissions.length === 0 ? (
+                        <div className="text-center py-10 text-slate-400 border border-dashed border-slate-202 rounded-xl text-xs bg-slate-50/50 text-slate-600 font-semibold font-sans">
+                          {t("নতুন কোনো স্থানীয় বাজার দর প্রেরিত হয়নি।", "No regional representative pricing entries submitted yet.")}
+                        </div>
+                      ) : (
+                        adminPriceSubmissions.map((item) => (
+                          <div key={item._id} className="p-3.5 bg-slate-50 border border-slate-150 rounded-2xl flex flex-col md:flex-row justify-between md:items-center gap-4">
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-black text-slate-900">{item.productName}</span>
+                                <span className="text-[10px] bg-slate-200 font-extrabold px-1.5 py-0.5 rounded text-slate-705 font-mono font-sans font-bold">৳{item.price} / {item.unit}</span>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                  item.status === "Approved" ? "bg-green-100 text-green-800" :
+                                  item.status === "Rejected" ? "bg-rose-100 text-rose-800" :
+                                  "bg-amber-105 text-amber-850"
+                                }`}>
+                                  {item.status === "Approved" ? t("অনুমোদিত ও দৃশ্যমান", "Approved & Live") :
+                                   item.status === "Rejected" ? t("বাতিলকৃত", "Rejected") :
+                                   t("পরীক্ষাধীন", "Pending Screening")
+                                  }
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-605 mt-1 font-semibold font-sans">
+                                📍 {item.upazila}, {item.district}, {item.division}
+                              </p>
+                              <p className="text-[9px] text-slate-400 font-medium mt-0.5">
+                                👤 রিপোর্টার: <span className="font-semibold text-slate-600">{item.representativeName}</span> ({item.representativeId}) | 📅 {item.submissionDate}
+                              </p>
+                            </div>
+
+                            <div className="flex gap-1 shrink-0 font-sans">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPriceObj(item);
+                                  setEditPriceForm({
+                                    productName: item.productName,
+                                    price: String(item.price),
+                                    unit: item.unit,
+                                    division: item.division,
+                                    district: item.district,
+                                    upazila: item.upazila
+                                  });
+                                }}
+                                className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
+                              >
+                                ✏ {t("সম্পাদনা", "Edit")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePriceApproval(item._id, "Rejected")}
+                                className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-rose-700 border border-slate-300 font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
+                              >
+                                ✖ {t("খারিজ করুন", "Reject")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePriceApproval(item._id, "Approved")}
+                                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-850 text-white font-black text-[10px] rounded-lg transition-colors cursor-pointer shadow-sm"
+                              >
+                                ✔ {t("অনুমোদন ও পাবলিশ", "Approve & Go Live")}
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {adminSelectedTab === "logs" && (
+                  /* TAB: SYSTEM AUDIT TRAIL LOGS */
+                  <div className="space-y-4 animate-in fade-in duration-200 text-slate-800 font-sans">
+                    <h4 className="text-xs font-black text-slate-705 uppercase tracking-widest pb-1 border-b border-slate-150">{t("সিস্টেম অডিট ট্রেইল ও ক্রিয়াকলাপ ট্র্যাকার (Audit Logs)", "System Audit Trail & Activity Tracker")}</h4>
+                    
+                    <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50">
+                      <table className="w-full text-left border-collapse text-xs font-sans">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-500 border-b border-slate-200 font-black">
+                            <th className="p-3 font-bold uppercase tracking-wider">{t("অপারেটর", "Auditor")}</th>
+                            <th className="p-3 font-bold uppercase tracking-wider">{t("ক্রিয়াকলাপ", "Event Action")}</th>
+                            <th className="p-3 font-bold uppercase tracking-wider">{t("বিস্তারিত বর্ণনা", "Details Log")}</th>
+                            <th className="p-3 font-bold uppercase tracking-wider">{t("সংগঠনের সময়", "Timestamp")}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-150 bg-white">
+                          {adminAuditLogs.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="p-8 text-center text-slate-400 font-bold">
+                                {t("ডাটাবেসে কোনো সিস্টেম অডিট ট্রেইল পাওয়া যায়নি।", "No audit trails logged yet.")}
+                              </td>
+                            </tr>
+                          ) : (
+                            adminAuditLogs.map((log) => (
+                              <tr key={log._id} className="hover:bg-slate-50 transition-colors">
+                                <td className="p-3 font-semibold text-slate-700 font-mono">{log.adminEmail}</td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    log.action.includes("Approve") ? "bg-green-100 text-green-800 font-black" :
+                                    log.action.includes("Reject") ? "bg-rose-100 text-rose-800 font-black" :
+                                    "bg-blue-101 text-blue-800"
+                                  }`}>
+                                    {log.action}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-slate-605 font-medium">{log.detailsBn}</td>
+                                <td className="p-3 font-mono text-[10px] text-slate-400">{log.timestamp}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center text-xs font-sans">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-black rounded-xl cursor-pointer"
+                >
+                  🚪 {t("সাইন-আউট", "Logout")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsOperatorOpen(false)}
+                  className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-extrabold rounded-xl cursor-pointer pointer-events-auto"
+                >
+                  {t("মডারেশন প্যানেল বন্ধ করুন", "Close Dashboard")}
+                </button>
+              </div>
 
             </div>
           ) : (
