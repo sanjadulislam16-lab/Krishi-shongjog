@@ -1,0 +1,6 @@
+{
+  "name": "Krishi Shongjog",
+  "description": "কৃষি তথ্য ও বাজার সংযোগ প্ল্যাটফর্ম - ফসল ক্রয়-বিক্রয়, রোগ বালাই সমাধান, আবহাওয়ার বার্তা এবং কৃষি বিষয়ক এআই পরামর্শ।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
