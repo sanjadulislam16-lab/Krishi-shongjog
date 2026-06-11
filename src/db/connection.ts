@@ -93,6 +93,7 @@ const RepresentativeProfileSchema = new mongoose.Schema({
   district: { type: String, required: true },
   upazila: { type: String, required: true },
   unionOrVillage: { type: String, required: true },
+  tradeLicensePic: { type: String, default: "" },
   status: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
   createdAt: { type: String, required: true }
 });

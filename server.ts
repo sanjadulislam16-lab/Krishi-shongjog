@@ -725,10 +725,10 @@ app.post("/api/marketplace/:id/delete", async (req, res, next) => {
 // Register Protinidhi (Representative) Account
 app.post("/api/auth/representative/register", async (req, res, next) => {
   try {
-    const { fullName, phone, email, password, division, district, upazila, unionOrVillage } = req.body;
+    const { fullName, phone, email, password, division, district, upazila, unionOrVillage, tradeLicensePic } = req.body;
     
-    if (!fullName || !phone || !email || !password || !division || !district || !upazila || !unionOrVillage) {
-      return res.status(400).json({ status: "error", message: "প্রতিনিধি রেজিস্ট্রেশনের সকল তথ্য পূরণ করা আবশ্যক।" });
+    if (!fullName || !phone || !email || !password || !division || !district || !upazila || !unionOrVillage || !tradeLicensePic) {
+      return res.status(400).json({ status: "error", message: "প্রতিনিধি রেজিস্ট্রেশনের সকল তথ্য এবং ব্যবসার ট্রেড লাইসেন্সের ছবি আবশ্যক।" });
     }
 
     if (!isDbConnected()) {
@@ -763,6 +763,7 @@ app.post("/api/auth/representative/register", async (req, res, next) => {
       district,
       upazila,
       unionOrVillage,
+      tradeLicensePic,
       status: "Pending",
       createdAt: new Date().toISOString()
     });

@@ -202,7 +202,8 @@ export default function App() {
     division: "ঢাকা",
     district: "ঢাকা",
     upazila: "",
-    unionOrVillage: ""
+    unionOrVillage: "",
+    tradeLicensePic: ""
   });
   const [authError, setAuthError] = useState<string>("");
   const [authSuccess, setAuthSuccess] = useState<string>("");
@@ -550,6 +551,10 @@ export default function App() {
     setAuthSuccess("");
 
     if (isRegisteringRep) {
+      if (!repRegForm.tradeLicensePic) {
+        setAuthError("অনুগ্রহ করে আপনার ব্যবসায়ের ট্রেড লাইসেন্সের ছবি আপলোড করুন (ট্রেড লাইসেন্স ইমেজ আপলোড করা ব্রাউজারে বাধ্যতামূলক)।");
+        return;
+      }
       try {
         const res = await fetch("/api/auth/representative/register", {
           method: "POST",
@@ -2479,6 +2484,50 @@ export default function App() {
                         />
                       </div>
                     </div>
+
+                    <div>
+                      <label className="block text-[10px] text-[#2c3e50] font-black mb-1 uppercase tracking-wider">
+                        📂 {t("ট্রেড লাইসেন্স ইমেজ আপলোড (বাধ্যতামূলক) *", "Business Trade License Image (Required) *")}
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        required
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setRepRegForm(prev => ({ ...prev, tradeLicensePic: reader.result as string }));
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="w-full text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none transition-colors cursor-pointer"
+                      />
+                      {repRegForm.tradeLicensePic ? (
+                        <div className="mt-2.5 border border-dashed border-emerald-300 rounded-xl overflow-hidden bg-emerald-50/20 max-h-40 flex justify-center items-center relative p-1.5">
+                          <img 
+                            src={repRegForm.tradeLicensePic} 
+                            alt="Trade License Preview" 
+                            className="max-h-36 object-contain rounded-lg"
+                            referrerPolicy="no-referrer"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setRepRegForm(prev => ({ ...prev, tradeLicensePic: "" }))}
+                            className="absolute top-1.5 right-1.5 bg-red-600 text-white rounded-full p-1 text-[10px] font-bold leading-none w-5 h-5 flex items-center justify-center cursor-pointer hover:bg-red-700 shadow-md"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-[9px] text-[#e67e22] mt-1 font-bold font-sans">
+                          ⚠️ {t("অনুগ্রহ করে আপনার ব্যবসায়ের বৈধ ট্রেড লাইসেন্সের ছবি আপলোড করুন।", "Please upload a valid picture of your business trade license.")}
+                        </p>
+                      )}
+                    </div>
+
                   </div>
                 ) : (
                   /* CONSOLIDATED SIGN-IN FIELDS */
@@ -2929,6 +2978,34 @@ export default function App() {
                               <p className="text-[10px] text-slate-600 font-medium mt-0.5">
                                 📍 এলাকা: {rep.unionOrVillage}, {rep.upazila}, {rep.district}, {rep.division}
                               </p>
+
+                              {rep.tradeLicensePic ? (
+                                <div className="mt-2.5">
+                                  <p className="text-[10px] font-bold text-[#e67e22] mb-1">
+                                    📂 {t("সংযুক্ত ট্রেড লাইসেন্স কপি:", "Attached Trade License:")}
+                                  </p>
+                                  <div className="relative group max-w-xs border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm p-1">
+                                    <img 
+                                      src={rep.tradeLicensePic} 
+                                      alt="Trade License" 
+                                      className="max-h-28 md:max-h-36 object-contain w-auto hover:scale-102 transition-transform duration-200 rounded-lg"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    <a 
+                                      href={rep.tradeLicensePic}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="absolute right-2 bottom-2 bg-emerald-700 text-white text-[9px] font-black px-2 py-1 rounded shadow-md hover:bg-emerald-800 transition-colors uppercase tracking-wider"
+                                    >
+                                      {t("বড় করে দেখুন ↗", "Zoom View ↗")}
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-[9px] text-red-600 font-bold mt-1 bg-red-50 w-fit px-2 py-0.5 rounded-full">
+                                  ⚠️ {t("ট্রেড লাইসেন্স ছবি আপলোড করা হয়নি", "No Trade License Uploaded")}
+                                </p>
+                              )}
                             </div>
 
                             <div className="flex gap-1 shrink-0">
